@@ -16,13 +16,9 @@ interface AudioQueueRow {
 export default function DisplayPage() {
   const [displayQueue, setDisplayQueue] = useState<string>('—');
   const [displayCounter, setDisplayCounter] = useState<string>('SILAHKAN MENUNGGU');
-  
-  // State untuk melacak apakah browser sudah diizinkan bersuara
   const [isAudioActivated, setIsAudioActivated] = useState<boolean>(false);
-  
   const isSpeakingRef = useRef<boolean>(false);
 
-  // Fungsi internal untuk update teks layar
   const updateDisplayUI = useCallback(async (queueId: string, counterId: string) => {
     try {
       const { data: queueData } = await supabase
@@ -44,7 +40,6 @@ export default function DisplayPage() {
     }
   }, []);
 
-  // Fungsi eksekusi suara dengan pencarian Voice Pack yang lebih aman
   const handleIncomingAudio = useCallback(async (audioRow: AudioQueueRow) => {
     if (isSpeakingRef.current) {
       setTimeout(() => handleIncomingAudio(audioRow), 1000);
@@ -53,31 +48,21 @@ export default function DisplayPage() {
 
     isSpeakingRef.current = true;
 
-    // 1. Update status DB ke 'playing'
     await supabase.from('audio_queue').update({ status: 'playing' }).eq('id', audioRow.id);
-
-    // 2. Update teks di layar TV
     await updateDisplayUI(audioRow.queue_id, audioRow.counter_id);
 
-    // 3. Konfigurasi Speech
-    console.log('Memulai suara untuk teks:', audioRow.text_to_speak);
     const utterance = new SpeechSynthesisUtterance(audioRow.text_to_speak);
     
-    // Cari voice Indonesia di browser secara dinamis
     const availableVoices = window.speechSynthesis.getVoices();
     const indonesianVoice = availableVoices.find(voice => 
       voice.lang.includes('id-ID') || voice.lang.includes('id_ID') || voice.lang.includes('id')
     );
     
-    if (indonesianVoice) {
-      utterance.voice = indonesianVoice;
-    }
-    
+    if (indonesianVoice) utterance.voice = indonesianVoice;
     utterance.lang = 'id-ID';
-    utterance.rate = 0.85; // Sedikit lambat agar artikulatif
+    utterance.rate = 0.85;
 
     utterance.onend = async () => {
-      console.log('Suara selesai diputar.');
       await supabase
         .from('audio_queue')
         .update({ status: 'played', played_at: new Date().toISOString() })
@@ -85,29 +70,21 @@ export default function DisplayPage() {
       isSpeakingRef.current = false;
     };
 
-    utterance.onerror = (event) => {
-      console.error('Terjadi error pada Speech Synthesis:', event.error);
+    utterance.onerror = () => {
       isSpeakingRef.current = false;
     };
 
-    // Eksekusi perintah suara ke soundcard laptop/TV
     window.speechSynthesis.speak(utterance);
   }, [updateDisplayUI]);
 
-  // Mengaktifkan fitur audio via interaksi klik pengguna
   const activateAudioEngine = () => {
     setIsAudioActivated(true);
-    
-    // Test beep/suara kosong pelan untuk memicu izin browser
     const testUtterance = new SpeechSynthesisUtterance('Sistem suara aktif');
     testUtterance.volume = 0.1;
     testUtterance.rate = 1.5;
     window.speechSynthesis.speak(testUtterance);
-    
-    console.log('Audio Engine Berhasil Diaktivasi!');
   };
 
-  // Initial load data terakhir
   useEffect(() => {
     async function fetchLatestActiveCall() {
       const { data } = await supabase
@@ -124,13 +101,11 @@ export default function DisplayPage() {
     }
     fetchLatestActiveCall();
     
-    // Pemicu awal agar daftar suara siap di memori browser
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.getVoices();
     }
   }, [updateDisplayUI]);
 
-  // Realtime listener
   useEffect(() => {
     const channel = supabase
       .channel('realtime_audio_broadcast')
@@ -152,19 +127,19 @@ export default function DisplayPage() {
   }, [handleIncomingAudio]);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-8 relative">
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-4 md:p-8 relative overflow-hidden">
       
-      {/* OVERLAY PROTEKSI AUDIO BROWSER */}
+      {/* Overlay Audio */}
       {!isAudioActivated && (
-        <div className="absolute inset-0 bg-slate-950/95 z-50 flex flex-col items-center justify-center p-4 text-center">
-          <div className="max-w-md bg-slate-900 p-8 rounded-2xl border border-slate-700 shadow-2xl">
-            <h3 className="text-2xl font-bold text-yellow-400 mb-2">Konfigurasi Audio TV</h3>
-            <p className="text-slate-400 text-sm mb-6">
+        <div className="absolute inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-4 text-center">
+          <div className="max-w-md bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-700 shadow-2xl">
+            <h3 className="text-xl md:text-2xl font-bold text-yellow-400 mb-2">Konfigurasi Audio TV</h3>
+            <p className="text-slate-400 text-xs md:text-sm mb-6">
               Browser memblokir suara otomatis sebelum ada interaksi. Klik tombol di bawah agar speaker ruang tunggu dapat berbunyi.
             </p>
             <button
               onClick={activateAudioEngine}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition-all active:scale-95"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition-all active:scale-95 text-sm md:text-base"
             >
               Aktifkan Suara Speaker
             </button>
@@ -172,27 +147,31 @@ export default function DisplayPage() {
         </div>
       )}
 
-      {/* Top Header */}
-      <div className="flex justify-between items-center border-b border-slate-700 pb-4">
-        <h1 className="text-3xl font-bold tracking-wider text-blue-400">PTSP PENGADILAN NEGERI</h1>
-        <div className="text-2xl font-mono bg-slate-800 px-4 py-2 rounded">
+      {/* Top Header - Diperbaiki menggunakan flex-col pada mobile */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-3 border-b border-slate-700 pb-4 text-center sm:text-left">
+        <h1 className="text-xl md:text-3xl font-bold tracking-wider text-blue-400">
+          PTSP PENGADILAN NEGERI
+        </h1>
+        <div className="text-sm md:text-2xl font-mono bg-slate-800 px-4 py-1.5 rounded-lg shadow-sm">
           {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </div>
       </div>
 
-      {/* Main Big Display */}
-      <div className="flex-1 flex flex-col items-center justify-center my-12 bg-slate-800 rounded-3xl p-12 border border-slate-700 shadow-2xl">
-        <h2 className="text-4xl text-slate-400 font-medium uppercase tracking-widest mb-4">Panggilan Antrian</h2>
-        <div className="text-[12rem] font-black tracking-tight text-yellow-400 leading-none">
+      {/* Main Big Display - Diperbaiki ukuran font & padding menggunakan breakpoint */}
+      <div className="flex-1 flex flex-col items-center justify-center my-6 md:my-12 bg-slate-800 rounded-3xl p-6 md:p-12 border border-slate-700 shadow-2xl text-center w-full max-w-5xl mx-auto">
+        <h2 className="text-lg md:text-4xl text-slate-400 font-medium uppercase tracking-widest mb-2 md:mb-4">
+          Panggilan Antrian
+        </h2>
+        <div className="text-7xl sm:text-9xl md:text-[11rem] lg:text-[13rem] font-black tracking-tight text-yellow-400 leading-none my-4">
           {displayQueue}
         </div>
-        <div className="text-5xl font-bold text-emerald-400 mt-6 tracking-wide bg-emerald-950/50 px-8 py-4 rounded-xl border border-emerald-500/30">
+        <div className="text-xl sm:text-3xl md:text-5xl font-bold text-emerald-400 mt-2 md:mt-6 tracking-wide bg-emerald-950/50 px-5 py-2.5 md:px-8 md:py-4 rounded-xl border border-emerald-500/30 uppercase max-w-full break-words">
           {displayCounter}
         </div>
       </div>
 
       {/* Bottom Running Text */}
-      <div className="bg-blue-950 border border-blue-800 text-blue-200 p-4 rounded-xl text-xl overflow-hidden whitespace-nowrap">
+      <div className="bg-blue-950 border border-blue-800 text-blue-200 p-3 md:p-4 rounded-xl text-sm md:text-xl overflow-hidden whitespace-nowrap shadow-inner">
         <div className="inline-block animate-[marquee_25s_linear_infinite] font-medium">
           Menerapkan Zona Integritas Wilayah Bebas Korupsi (WBK) • Utamakan budaya antri yang tertib • Laporkan jika ada pungutan liar melalui kanal resmi pengaduan.
         </div>
