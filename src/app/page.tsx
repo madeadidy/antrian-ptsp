@@ -116,7 +116,6 @@ export default function Home() {
       {/* ─── Footer Instansi ─── */}
       <footer className="border-t border-slate-800 bg-slate-950/40 py-4 text-center text-xs text-slate-500 relative z-10">
         <div>© 2026 PTSP Pengadilan Negeri. All Rights Reserved.</div>
-        <div className="text-[10px] text-slate-600 mt-0.5 font-mono">v1.0.0-MVP (Next.js 15 + Supabase)</div>
       </footer>
     </div>
   );
