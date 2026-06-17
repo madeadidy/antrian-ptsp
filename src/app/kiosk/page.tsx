@@ -81,7 +81,7 @@ export default function KioskPage() {
       const newReceipt: ReceiptData = {
         queueNumber,
         serviceName: selectedService.name,
-        dateStr: now.toLocaleDateString('id-ID', dateOptions) + ' WIB'
+        dateStr: now.toLocaleDateString('id-ID', dateOptions) + ' WITA'
       };
 
       // ─── TRIK UTAMA BYPASS ERROR ───
