@@ -34,7 +34,6 @@ export default function AdminDashboard() {
   const [admin, setAdmin] = useState<UserSession | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   
-  // State Statistik Utama (4 Card Atas)
   const [stats, setStats] = useState({
     total: 0,
     served: 0,
@@ -42,29 +41,31 @@ export default function AdminDashboard() {
     waiting: 0,
   });
 
-  // State Tabel Volume Antrian
   const [volumes, setVolumes] = useState<ServiceVolume[]>([]);
-
-  // State Kontrol Modal Reset Terpusat
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isResetLoading, setIsResetLoading] = useState<boolean>(false);
 
-  // Fungsi Tarik Data Realtime Harian
+  // FUNGSI UTAMA: Tarik data real harian & hitung volume perkara
   const refreshDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // ─── FIX LOGIKA ZONA WAKTU (TIMING FIX) ───
+      // Set jam lokal saat ini tepat ke pukul 00:00:00.00 dini hari
+      const localMidnight = new Date();
+      localMidnight.setHours(0, 0, 0, 0);
+      const startOfToday = localMidnight.toISOString(); 
+      // Jika di laptop jam 00:01 WITA tanggal 18, ini otomatis menghasilkan UTC pas 18/06 00:00 WITA
 
       // 1. Ambil data master layanan (Services)
       const { data: servicesData } = await supabase
         .from('services')
         .select('id, name, code');
 
-      // 2. Ambil semua tiket antrian hari ini
+      // 2. Ambil semua tiket antrian hari ini (Berdasarkan startOfToday yang sudah di-fix)
       const { data: queuesData } = await supabase
         .from('queues')
         .select('id, status, service_id')
-        .gte('created_at', `${today}T00:00:00.000Z`);
+        .gte('created_at', startOfToday);
 
       const services = (servicesData || []) as ServiceRow[];
       const queues = (queuesData || []) as QueueRow[];
@@ -122,11 +123,11 @@ export default function AdminDashboard() {
       const { error } = await supabase
         .from('queues')
         .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000'); // Bersihkan semua baris hari ini
+        .neq('id', '00000000-0000-0000-0000-000000000000');
 
       if (error) throw error;
 
-      setIsModalOpen(false); // Tutup modal setelah sukses
+      setIsModalOpen(false);
       await refreshDashboardData();
     } catch (err) {
       console.error(err);
@@ -141,7 +142,7 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 select-none relative">
       
-      {/* ─── KOMPONEN MODAL DI TENGAH (SAFETY WINDOW LOCK) ─── */}
+      {/* MODAL DI CENTER */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
           <div className="bg-white p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 text-center mx-4 animate-in zoom-in-95 duration-200">
@@ -152,22 +153,21 @@ export default function AdminDashboard() {
               Konfirmasi Kedaruratan
             </h3>
             <p className="text-slate-500 text-xs md:text-sm mt-2.5 leading-relaxed max-w-xs mx-auto">
-              Apakah Anda benar-benar yakin ingin melakukan reset? Tindakan ini akan <strong>menghapus permanen seluruh data nomor antrian hari ini</strong>.
+              Apakah Anda benar-benar yakin ingin melakukan reset? Tindakan ini akan **menghapus permanen seluruh data nomor antrian harian**.
             </p>
             
-            {/* Navigasi Aksi Modal */}
             <div className="mt-6 flex gap-3">
               <button
                 onClick={handleManualReset}
                 disabled={isResetLoading}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-bold py-3 rounded-xl shadow-md active:scale-[0.98] transition disabled:opacity-50"
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-bold py-3 rounded-xl shadow-md transition disabled:opacity-50"
               >
                 {isResetLoading ? 'Membersihkan...' : 'Ya, Reset Data'}
               </button>
               <button
                 onClick={() => setIsModalOpen(false)}
                 disabled={isResetLoading}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs md:text-sm font-bold py-3 rounded-xl border border-slate-200 active:scale-[0.98] transition"
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs md:text-sm font-bold py-3 rounded-xl border border-slate-200 transition"
               >
                 Batalkan
               </button>
@@ -176,10 +176,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MAIN CONTAINER LAYOUT */}
       <div className="max-w-6xl w-full mx-auto relative z-10">
-        
-        {/* TOP HEADER SECTION */}
         <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Laporan Pelayanan PTSP</h1>
@@ -188,7 +185,6 @@ export default function AdminDashboard() {
             </p>
           </div>
 
-          {/* ACTION NAVIGATION CONTROLS */}
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setIsModalOpen(true)}
@@ -214,7 +210,6 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        {/* METRICS ROW CARDS */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
           <div className="bg-white p-6 border border-slate-200 rounded-2xl shadow-sm border-l-4 border-l-slate-400">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Antrian</p>
@@ -234,7 +229,6 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        {/* TABLE REKAP DATA PERKARA */}
         <main className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl shadow-sm">
           <div className="mb-6">
             <h2 className="text-base font-bold text-slate-800">Volume Antrian Per Layanan</h2>
@@ -262,7 +256,6 @@ export default function AdminDashboard() {
             </table>
           </div>
         </main>
-
       </div>
     </div>
   );
