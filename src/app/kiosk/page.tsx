@@ -40,12 +40,24 @@ export default function KioskPage() {
     fetchServices();
   }, [fetchServices]);
 
+  // ─── SOLUSI UTAMA: Menggunakan Efek Reaktif Untuk Memperbaiki Bug Browser Locker ───
+  useEffect(() => {
+    if (!receipt) return;
+
+    // Pemicu cetak langsung dijalankan sinkron saat elemen struktur DOM cetak dirender
+    window.print();
+
+    // Reset state dilakukan tepat setelah dialog cetak selesai/ditutup (blocking-chain browser)
+    setSelectedService(null);
+    setReceipt(null);
+  }, [receipt]);
+
   // Langkah 1: Pengunjung memilih layanan di layar
   function handleSelectService(service: Service) {
     setSelectedService(service);
   }
 
-  // Langkah 2: Eksekusi simpan ke DB dan cetak struk fisik
+  // Langkah 2: Eksekusi simpan ke DB dan siapkan data struk
   async function handlePrintQueue() {
     if (!selectedService || loading) return;
     setLoading(true);
@@ -83,21 +95,13 @@ export default function KioskPage() {
         dateStr: now.toLocaleDateString('id-ID', dateOptions) + ' WIB'
       };
 
-      // Set data struk ke state agar DOM print terisi
+      // Set data struk ke state agar memicu useEffect di atas
       setReceipt(newReceipt);
-
-      // Jalankan perintah cetak printer thermal (menggunakan microtask/setTimeout agar DOM ter-render dulu)
-      setTimeout(() => {
-        window.print();
-        // Reset state setelah proses cetak selesai dilakukan
-        setSelectedService(null);
-        setReceipt(null);
-        setLoading(false);
-      }, 300);
 
     } catch (error) {
       alert('Gagal memproses nomor antrian.');
       console.error(error);
+    } finally {
       setLoading(false);
     }
   }

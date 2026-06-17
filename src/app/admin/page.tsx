@@ -45,11 +45,11 @@ export default function AdminDashboard() {
   // State Tabel Volume Antrian
   const [volumes, setVolumes] = useState<ServiceVolume[]>([]);
 
-  // State Pengunci Reset Manual
-  const [showConfirm, setShowConfirm] = useState<boolean>(false);
+  // State Kontrol Modal Reset Terpusat
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isResetLoading, setIsResetLoading] = useState<boolean>(false);
 
-  // FUNGSI UTAMA: Tarik data real harian & hitung volume perkara
+  // Fungsi Tarik Data Realtime Harian
   const refreshDashboardData = useCallback(async () => {
     setLoading(true);
     try {
@@ -87,7 +87,6 @@ export default function AdminDashboard() {
         };
       });
 
-      // Urutkan berdasarkan abjad kode tiket (A-F) agar rapi
       mappedVolumes.sort((a, b) => a.code.localeCompare(b.code));
       setVolumes(mappedVolumes);
     } catch (err) {
@@ -116,7 +115,7 @@ export default function AdminDashboard() {
     refreshDashboardData();
   }, [router, refreshDashboardData]);
 
-  // Fungsi Eksekusi Reset Manual Darurat
+  // Fungsi Eksekusi Reset Manual dari Dalam Modal
   async function handleManualReset() {
     setIsResetLoading(true);
     try {
@@ -127,21 +126,58 @@ export default function AdminDashboard() {
 
       if (error) throw error;
 
-      setShowConfirm(false);
+      setIsModalOpen(false); // Tutup modal setelah sukses
       await refreshDashboardData();
     } catch (err) {
       console.error(err);
-      alert('Gagal membersihkan database.');
+      alert('Gagal bersihkan database.');
     } finally {
       setIsResetLoading(false);
     }
   }
 
-  if (!admin) return <div className="p-8 text-center text-slate-500">Memeriksa enkripsi sesi...</div>;
+  if (!admin) return <div className="p-8 text-center text-slate-500 font-medium">Memeriksa enkripsi sesi...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 select-none">
-      <div className="max-w-6xl w-full mx-auto">
+    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 select-none relative">
+      
+      {/* ─── KOMPONEN MODAL DI TENGAH (SAFETY WINDOW LOCK) ─── */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+          <div className="bg-white p-6 md:p-8 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 text-center mx-4 animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-red-50 text-red-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4 border border-red-100">
+              ⚠️
+            </div>
+            <h3 className="text-lg md:text-xl font-bold text-slate-800 tracking-tight">
+              Konfirmasi Kedaruratan
+            </h3>
+            <p className="text-slate-500 text-xs md:text-sm mt-2.5 leading-relaxed max-w-xs mx-auto">
+              Apakah Anda benar-benar yakin ingin melakukan reset? Tindakan ini akan <strong>menghapus permanen seluruh data nomor antrian hari ini</strong>.
+            </p>
+            
+            {/* Navigasi Aksi Modal */}
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={handleManualReset}
+                disabled={isResetLoading}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-bold py-3 rounded-xl shadow-md active:scale-[0.98] transition disabled:opacity-50"
+              >
+                {isResetLoading ? 'Membersihkan...' : 'Ya, Reset Data'}
+              </button>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                disabled={isResetLoading}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs md:text-sm font-bold py-3 rounded-xl border border-slate-200 active:scale-[0.98] transition"
+              >
+                Batalkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MAIN CONTAINER LAYOUT */}
+      <div className="max-w-6xl w-full mx-auto relative z-10">
         
         {/* TOP HEADER SECTION */}
         <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -152,35 +188,14 @@ export default function AdminDashboard() {
             </p>
           </div>
 
-          {/* RIGHT ACTION BUTTONS GROUP */}
+          {/* ACTION NAVIGATION CONTROLS */}
           <div className="flex items-center gap-2.5">
-            {/* SAKLAR RESET DARURAT DENGAN SAFETY LOCK INLINE */}
-            {showConfirm ? (
-              <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 p-1 rounded-xl shadow-sm animate-in fade-in zoom-in-95 duration-150">
-                <span className="text-[11px] text-red-600 font-bold px-2">Yakin hapus semua?</span>
-                <button
-                  onClick={handleManualReset}
-                  disabled={isResetLoading}
-                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
-                >
-                  {isResetLoading ? 'Proses...' : 'Ya'}
-                </button>
-                <button
-                  onClick={() => setShowConfirm(false)}
-                  disabled={isResetLoading}
-                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition"
-                >
-                  Batal
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowConfirm(true)}
-                className="bg-white hover:bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition active:scale-95"
-              >
-                Reset Antrian
-              </button>
-            )}
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="bg-white hover:bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition active:scale-95"
+            >
+              Reset Antrian
+            </button>
 
             <button
               onClick={refreshDashboardData}
@@ -199,7 +214,7 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        {/* METRICS ROW (4 CARDS SESUAI GAMBAR) */}
+        {/* METRICS ROW CARDS */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
           <div className="bg-white p-6 border border-slate-200 rounded-2xl shadow-sm border-l-4 border-l-slate-400">
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Antrian</p>
@@ -219,7 +234,7 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        {/* BREAKDOWN VOLUME CARD BOX */}
+        {/* TABLE REKAP DATA PERKARA */}
         <main className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl shadow-sm">
           <div className="mb-6">
             <h2 className="text-base font-bold text-slate-800">Volume Antrian Per Layanan</h2>
