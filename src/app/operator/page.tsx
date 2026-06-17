@@ -34,17 +34,24 @@ export default function OperatorDashboard() {
   const router = useRouter();
   const [operator, setOperator] = useState<UserSession | null>(null);
   const [counterName, setCounterName] = useState<string>("Memuat Loket...");
+  const [serviceId, setServiceId] = useState<string>(""); // State baru untuk mengunci ID Layanan loket
   const [currentQueue, setCurrentQueue] = useState<ActiveQueue | null>(null);
   const [stats, setStats] = useState<{ waiting: number }>({ waiting: 0 });
 
-  // 1. FUNGSI KHUSUS: Hanya menghitung jumlah antrian tersisa (Sangat cepat & aman)
-  const fetchWaitingCount = useCallback(async () => {
-    const { count } = await supabase.from("queues").select("*", { count: "exact", head: true }).eq("status", "waiting");
+  // 1. FUNGSI SISA ANTRIAN: Diperbarui agar menyaring berdasarkan service_id spesifik loket
+  const fetchWaitingCount = useCallback(async (targetServiceId: string) => {
+    if (!targetServiceId) return;
+    
+    const { count } = await supabase
+      .from("queues")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "waiting")
+      .eq("service_id", targetServiceId); // Filter spesifik perkara loket ini
 
     setStats({ waiting: count || 0 });
   }, []);
 
-  // 2. FUNGSI KHUSUS INITIAL LOAD: Mencari apakah ada sesi antrian aktif yang menggantung saat halaman di-refresh
+  // 2. FUNGSI INITIAL LOAD SINKRONISASI REFRESH
   const checkActiveQueueOnLoad = useCallback(async (counterId: string) => {
     const { data: activeCallData } = await supabase
       .from("queue_calls")
@@ -81,30 +88,45 @@ export default function OperatorDashboard() {
     setOperator(session);
 
     async function initDashboard() {
-      // Ambil nama loket
-      const { data } = await supabase.from("counters").select("name").eq("id", session.counter_id!).single();
-      if (data) setCounterName(data.name);
+      // Ambil nama loket sekaligus dapatkan service_id relasinya
+      const { data } = await supabase
+        .from("counters")
+        .select("name, service_id")
+        .eq("id", session.counter_id!)
+        .single();
+        
+      if (data) {
+        setCounterName(data.name);
+        setServiceId(data.service_id); // Kunci service_id ke state lokal
 
-      // Jalankan sync data awal
-      await fetchWaitingCount();
-      await checkActiveQueueOnLoad(session.counter_id!);
+        // Jalankan sinkronisasi data awal menggunakan service_id yang valid
+        await fetchWaitingCount(data.service_id);
+        await checkActiveQueueOnLoad(session.counter_id!);
+      }
     }
 
     initDashboard();
   }, [router, fetchWaitingCount, checkActiveQueueOnLoad]);
 
+  // 3. FUNGSI PANGGIL: Diperbarui agar hanya menarik nomor antrian serumpun layanannya
   async function callNextQueue() {
-    if (!operator || !operator.counter_id) return;
+    if (!operator || !operator.counter_id || !serviceId) return;
 
-    // Ambil 1 antrian tertua berstatus waiting
-    const { data: nextQueue } = await supabase.from("queues").select("*").eq("status", "waiting").order("created_at", { ascending: true }).limit(1).maybeSingle();
+    // Ambil 1 antrian tertua berstatus waiting KHUSUS untuk service_id loket ini
+    const { data: nextQueue } = await supabase
+      .from("queues")
+      .select("*")
+      .eq("status", "waiting")
+      .eq("service_id", serviceId) // Filter jaminan anti-salah panggil kode tiket
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
     if (!nextQueue) {
-      alert("Tidak ada antrian dalam antrian tunggu.");
+      alert("Tidak ada antrian dalam antrian tunggu untuk layanan ini.");
       return;
     }
 
-    // Amankan state UI lokal terlebih dahulu (Anti-Hilang)
     const localActiveQueue: ActiveQueue = {
       id: nextQueue.id,
       queue_number: nextQueue.queue_number,
@@ -114,7 +136,6 @@ export default function OperatorDashboard() {
     };
     setCurrentQueue(localActiveQueue);
 
-    // Eksekusi perubahan ke database di latar belakang
     await supabase.from("queues").update({ status: "calling", called_at: new Date().toISOString() }).eq("id", nextQueue.id);
 
     await supabase.from("queue_calls").insert([
@@ -125,10 +146,9 @@ export default function OperatorDashboard() {
       },
     ]);
 
-    // Manipulasi nama loket khusus agar TTS mengeja P-H-I, bukan dibaca "fi"
     const spokenCounterName = counterName.replace("PHI", "P. H. I.");
-
     const textToSpeak = `Nomor antrian, ${nextQueue.queue_number.split("").join(" ")}, menuju, ${spokenCounterName}`;
+    
     await supabase.from("audio_queue").insert([
       {
         queue_id: nextQueue.id,
@@ -138,33 +158,31 @@ export default function OperatorDashboard() {
       },
     ]);
 
-    // Perbarui angka sisa antrian di pojok kanan atas
-    await fetchWaitingCount();
+    await fetchWaitingCount(serviceId);
   }
 
+  // 4. FUNGSI UPDATE STATUS
   async function handleStatus(status: "served" | "skipped") {
-    if (!currentQueue || !operator || !operator.counter_id) return;
+    if (!currentQueue || !operator || !operator.counter_id || !serviceId) return;
 
-    // Kunci perubahan di lokal secara instan
     setCurrentQueue(null);
 
-    // Kirim data update final ke database
     const { error } = await supabase.from("queues").update({ status: status, finished_at: new Date().toISOString() }).eq("id", currentQueue.id);
 
     if (error) {
       alert("Gagal memperbarui status ke database: " + error.message);
     }
 
-    await fetchWaitingCount();
+    await fetchWaitingCount(serviceId);
   }
 
+  // 5. FUNGSI RECALL PANGGIL ULANG
   async function recall() {
     if (!currentQueue || !operator || !operator.counter_id) return;
 
-    // Manipulasi nama loket khusus agar TTS mengeja P-H-I, bukan dibaca "fi"
     const spokenCounterName = counterName.replace("PHI", "P. H. I.");
-
     const textToSpeak = `Mengulang, nomor antrian, ${currentQueue.queue_number.split("").join(" ")}, menuju, ${spokenCounterName}`;
+    
     await supabase.from("audio_queue").insert([
       {
         queue_id: currentQueue.id,
@@ -183,33 +201,34 @@ export default function OperatorDashboard() {
   if (!operator) return <div className="p-8 text-center text-slate-500">Memeriksa enkripsi sesi...</div>;
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-4xl mx-auto select-none">
       <header className="mb-8 border-b pb-4 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">{counterName}</h1>
           <p className="text-sm text-gray-500">Petugas: {operator.name}</p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-medium">Sisa Antrian: {stats.waiting} Orang</div>
-          <button onClick={handleLogout} className="text-sm text-red-600 hover:underline font-medium">
+          {/* Badge Sisa Antrian Spesifik Loket */}
+          <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-bold text-sm tracking-wide border border-blue-100">
+            Sisa Antrian: {stats.waiting} Orang
+          </div>
+          <button onClick={handleLogout} className="text-sm text-red-600 hover:underline font-bold">
             Log Out
           </button>
         </div>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Antrian Card */}
+        {/* Kartu Display Antrian */}
         <div className="bg-white p-6 border rounded-xl shadow-sm text-center">
           <h2 className="text-gray-500 font-medium mb-2">Antrian Saat Ini</h2>
-          <div className="text-6xl font-black text-slate-800 my-4">{currentQueue ? currentQueue.queue_number : "—"}</div>
+          <div className="text-6xl font-black text-slate-800 my-4 font-mono">{currentQueue ? currentQueue.queue_number : "—"}</div>
 
           <div className="flex justify-center gap-2 mt-6">
-            {/* Tombol Panggil Berikutnya dengan Hover & Active */}
             <button onClick={callNextQueue} disabled={!!currentQueue} className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg disabled:opacity-50 hover:bg-blue-700 active:scale-95 transition-all">
               Panggil Berikutnya
             </button>
 
-            {/* Tombol Recall dengan Hover & Active */}
             <button
               onClick={recall}
               disabled={!currentQueue}
@@ -220,7 +239,7 @@ export default function OperatorDashboard() {
           </div>
         </div>
 
-        {/* Tombol Kontrol Pelayanan */}
+        {/* Panel Kontrol Eksekusi Pelayanan */}
         <div className="bg-slate-50 p-6 border rounded-xl flex flex-col justify-center gap-4">
           <button onClick={() => handleStatus("served")} disabled={!currentQueue} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg shadow disabled:opacity-40 hover:bg-green-700 transition">
             Selesai Pelayanan (Served)
