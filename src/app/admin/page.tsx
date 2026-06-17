@@ -34,6 +34,7 @@ export default function AdminDashboard() {
   const [admin, setAdmin] = useState<UserSession | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   
+  // State Statistik Utama (4 Card Atas)
   const [stats, setStats] = useState({
     total: 0,
     served: 0,
@@ -41,27 +42,26 @@ export default function AdminDashboard() {
     waiting: 0,
   });
 
+  // State Tabel Volume Antrian
   const [volumes, setVolumes] = useState<ServiceVolume[]>([]);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isResetLoading, setIsResetLoading] = useState<boolean>(false);
 
-  // FUNGSI UTAMA: Tarik data real harian & hitung volume perkara
+  // 1. FUNGSI UTAMA: Tarik data harian & hitung volume perkara
   const refreshDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      // ─── FIX LOGIKA ZONA WAKTU (TIMING FIX) ───
-      // Set jam lokal saat ini tepat ke pukul 00:00:00.00 dini hari
+      // FIX LOGIKA ZONA WAKTU (TIMING FIX)
       const localMidnight = new Date();
       localMidnight.setHours(0, 0, 0, 0);
       const startOfToday = localMidnight.toISOString(); 
-      // Jika di laptop jam 00:01 WITA tanggal 18, ini otomatis menghasilkan UTC pas 18/06 00:00 WITA
 
-      // 1. Ambil data master layanan (Services)
+      // Ambil data master layanan (Services)
       const { data: servicesData } = await supabase
         .from('services')
         .select('id, name, code');
 
-      // 2. Ambil semua tiket antrian hari ini (Berdasarkan startOfToday yang sudah di-fix)
+      // Ambil semua tiket antrian hari ini
       const { data: queuesData } = await supabase
         .from('queues')
         .select('id, status, service_id')
@@ -70,7 +70,7 @@ export default function AdminDashboard() {
       const services = (servicesData || []) as ServiceRow[];
       const queues = (queuesData || []) as QueueRow[];
 
-      // 3. Hitung 4 Metrik Ringkasan Utama
+      // Hitung 4 Metrik Ringkasan Utama
       const total = queues.length;
       const served = queues.filter((q) => q.status === 'served').length;
       const skipped = queues.filter((q) => q.status === 'skipped').length;
@@ -78,7 +78,7 @@ export default function AdminDashboard() {
 
       setStats({ total, served, skipped, waiting });
 
-      // 4. Hitung Volume Antrian Per Layanan untuk Tabel bawah
+      // Hitung Volume Antrian Per Layanan untuk Tabel bawah
       const mappedVolumes = services.map((srv) => {
         const matchCount = queues.filter((q) => q.service_id === srv.id).length;
         return {
@@ -97,7 +97,7 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  // Proteksi Login Sesi Admin
+  // 2. Proteksi Login Sesi Admin & Load Pertama
   useEffect(() => {
     const sessionStr = localStorage.getItem('user_session');
     if (!sessionStr) {
@@ -115,6 +115,25 @@ export default function AdminDashboard() {
     setAdmin(session);
     refreshDashboardData();
   }, [router, refreshDashboardData]);
+
+  // ─── FIX UTAMA: LISTENER REALTIME SUPABASE (AUTO-REFRESH HANDS-FREE) ───
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin_realtime_tracker')
+      .on(
+        'postgres_changes', 
+        { event: '*', schema: 'public', table: 'queues' }, 
+        () => {
+          // Ketika ada INSERT, UPDATE, atau DELETE di tabel queues, jalankan kalkulasi ulang otomatis
+          refreshDashboardData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refreshDashboardData]);
 
   // Fungsi Eksekusi Reset Manual dari Dalam Modal
   async function handleManualReset() {
