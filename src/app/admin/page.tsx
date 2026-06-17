@@ -146,7 +146,7 @@ export default function AdminDashboard() {
 
       {/* FOOTER */}
       <footer className="border-t border-slate-800 text-center py-4 text-xs text-slate-600 font-mono mt-12">
-        Sistem Manajemen Antrian PTSP • Mode Pengawasan Roo Admin
+        Sistem Manajemen Antrian PTSP • Mode Pengawasan Root Admin
       </footer>
     </div>
   );
