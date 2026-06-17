@@ -36,10 +36,9 @@ export default function DisplayPage() {
   
   const isSpeakingRef = useRef<boolean>(false);
 
-  // FUNGSI UTAMA: Mencari antrian terbaru hari ini yang sudah diproses (Anti-Kosong)
+  // Sinkronisasi data antrian dari database
   const fetchAllCountersStatus = useCallback(async () => {
     try {
-      // 1. Ambil semua master data loket fisik
       const { data: countersData } = await supabase
         .from('counters')
         .select('id, name, service_id, services(code)');
@@ -47,18 +46,15 @@ export default function DisplayPage() {
       if (!countersData) return;
       const typedCounters = countersData as unknown as CounterRow[];
 
-      // 2. Ambil semua antrian hari ini yang sudah dipanggil/selesai/dilewati (BUKAN waiting)
       const today = new Date().toISOString().split('T')[0];
       const { data: processedQueues } = await supabase
         .from('queues')
         .select('id, queue_number, service_id, status, created_at')
         .neq('status', 'waiting')
         .gte('created_at', `${today}T00:00:00.000Z`)
-        .order('created_at', { ascending: false }); // Urutkan dari yang paling baru
+        .order('created_at', { ascending: false });
 
-      // 3. Petakan nomor terakhir ke masing-masing loket
       const mapped = typedCounters.map((counter) => {
-        // Karena diurutkan descending, .find() otomatis mengambil antrian TERBARU dari service ini
         const matchQueue = processedQueues?.find((q) => q.service_id === counter.service_id);
         
         return {
@@ -70,7 +66,6 @@ export default function DisplayPage() {
         };
       });
 
-      // Urutkan abjad grid berdasarkan Kode Tiket (A sampai F)
       mapped.sort((a, b) => a.code.localeCompare(b.code));
       setCountersStatus(mapped);
     } catch (err) {
@@ -78,7 +73,7 @@ export default function DisplayPage() {
     }
   }, []);
 
-  // FUNGSI SUARA: Membaca teks panggilan audio_queue
+  // Eksekusi pengolah suara
   const handleIncomingAudio = useCallback(async (audioRow: AudioQueueRow) => {
     if (isSpeakingRef.current) {
       setTimeout(() => handleIncomingAudio(audioRow), 1000);
@@ -159,7 +154,7 @@ export default function DisplayPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-6 relative overflow-x-hidden select-none">
       
-      {/* OVERLAY PROTEKSI AUDIO BROWSER */}
+      {/* OVERLAY SPEAKER */}
       {!isAudioActivated && (
         <div className="absolute inset-0 bg-slate-950/98 z-50 flex items-center justify-center p-4 text-center backdrop-blur-md">
           <div className="max-w-md bg-slate-900 p-8 rounded-2xl border border-slate-800 shadow-2xl">
@@ -190,14 +185,14 @@ export default function DisplayPage() {
 
       {/* BANNER NOTIFIKASI PANGGILAN TERAKHIR */}
       {lastCalledInfo && (
-        <div className="my-4 bg-blue-950/40 border border-blue-500/30 rounded-2xl p-4 flex items-center justify-center gap-6 animate-pulse">
+        <div className="my-4 bg-blue-950/40 border border-blue-500/30 rounded-2xl p-4 flex items-center justify-center gap-6">
           <span className="text-blue-400 text-sm font-bold uppercase tracking-widest">Panggilan Terakhir:</span>
           <div className="text-3xl font-black text-yellow-400 tracking-tight">{lastCalledInfo.number}</div>
           <div className="text-lg font-bold text-emerald-400">➔ {lastCalledInfo.counter}</div>
         </div>
       )}
 
-      {/* DASHBOARD GRID LOKET A-F RESPONSIVE */}
+      {/* MONITOR GRID LOKET */}
       <main className="flex-1 my-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 items-center justify-center max-w-7xl w-full mx-auto">
         {countersStatus.map((counter) => {
           const isCalling = lastCalledInfo && counter.currentNumber === lastCalledInfo.number && counter.status === 'calling';
@@ -211,7 +206,6 @@ export default function DisplayPage() {
                   : 'border-slate-800/80 hover:border-slate-700'
               }`}
             >
-              {/* Top Card Badge */}
               <div className="w-full flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="text-sm md:text-base font-black tracking-wider text-slate-200 uppercase truncate">
                   {counter.name}
@@ -221,20 +215,19 @@ export default function DisplayPage() {
                 </span>
               </div>
 
-              {/* Angka Utama (Berubah warna halus menyesuaikan status pelayanan) */}
+              {/* MODIFIKASI UTAMA: Kelas 'animate-bounce' telah dihapus agar posisi nomor tetap tenang/diam */}
               <div className={`text-6xl sm:text-7xl md:text-8xl font-black tracking-tight leading-none my-4 transition-colors ${
                 counter.currentNumber === '—' 
                   ? 'text-slate-700' 
                   : isCalling 
-                    ? 'text-yellow-400 animate-bounce' 
+                    ? 'text-yellow-400' 
                     : counter.status === 'served'
-                      ? 'text-slate-400' // Berubah abu-abu agar kontras menandakan selesai pelayanan namun nomor tetap tampil
+                      ? 'text-slate-400'
                       : 'text-emerald-400'
               }`}>
                 {counter.currentNumber}
               </div>
 
-              {/* Label Status Dinamis */}
               <div className={`text-[10px] md:text-xs font-bold tracking-widest uppercase px-3 py-1 rounded-full border ${
                 counter.status === 'empty' 
                   ? 'bg-slate-950 text-slate-500 border-transparent' 
@@ -242,7 +235,7 @@ export default function DisplayPage() {
                     ? 'bg-amber-950/40 text-amber-400 border-amber-900/50 animate-pulse'
                     : counter.status === 'served'
                       ? 'bg-emerald-950/40 text-emerald-500 border-emerald-900/40'
-                      : 'bg-red-950/40 text-red-400 border-red-900/40' // status skipped
+                      : 'bg-red-950/40 text-red-400 border-red-900/40'
               }`}>
                 {counter.status === 'empty' && 'Kosong / Istirahat'}
                 {counter.status === 'calling' && 'Sedang Dilayani'}
@@ -254,7 +247,7 @@ export default function DisplayPage() {
         })}
       </main>
 
-      {/* TEKS BERJALAN BAWAH */}
+      {/* TEKS BERJALAN */}
       <footer className="bg-slate-900 border border-slate-800 p-3 md:p-4 rounded-2xl overflow-hidden whitespace-nowrap shadow-inner mt-2">
         <div className="inline-block animate-[marquee_30s_linear_infinite] font-medium text-xs md:text-sm text-slate-400 tracking-wide">
           Menerapkan Zona Integritas Wilayah Bebas Korupsi (WBK) • Utamakan budaya antri yang tertib • Laporkan tindakan pungutan liar melalui kanal pengaduan resmi • Jam pelayanan PTSP Senin - Jumat pukul 08:00 s.d 16:30 WIB.
