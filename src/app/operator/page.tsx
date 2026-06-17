@@ -125,7 +125,10 @@ export default function OperatorDashboard() {
       },
     ]);
 
-    const textToSpeak = `Nomor antrian, ${nextQueue.queue_number.split("").join(" ")}, menuju, ${counterName}`;
+    // Manipulasi nama loket khusus agar TTS mengeja P-H-I, bukan dibaca "fi"
+    const spokenCounterName = counterName.replace("PHI", "P. H. I.");
+
+    const textToSpeak = `Nomor antrian, ${nextQueue.queue_number.split("").join(" ")}, menuju, ${spokenCounterName}`;
     await supabase.from("audio_queue").insert([
       {
         queue_id: nextQueue.id,
@@ -158,7 +161,10 @@ export default function OperatorDashboard() {
   async function recall() {
     if (!currentQueue || !operator || !operator.counter_id) return;
 
-    const textToSpeak = `Mengulang, nomor antrian, ${currentQueue.queue_number.split("").join(" ")}, menuju, ${counterName}`;
+    // Manipulasi nama loket khusus agar TTS mengeja P-H-I, bukan dibaca "fi"
+    const spokenCounterName = counterName.replace("PHI", "P. H. I.");
+
+    const textToSpeak = `Mengulang, nomor antrian, ${currentQueue.queue_number.split("").join(" ")}, menuju, ${spokenCounterName}`;
     await supabase.from("audio_queue").insert([
       {
         queue_id: currentQueue.id,
@@ -193,7 +199,6 @@ export default function OperatorDashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Antrian Card */}
-        {/* Card Antrian */}
         <div className="bg-white p-6 border rounded-xl shadow-sm text-center">
           <h2 className="text-gray-500 font-medium mb-2">Antrian Saat Ini</h2>
           <div className="text-6xl font-black text-slate-800 my-4">{currentQueue ? currentQueue.queue_number : "—"}</div>
