@@ -1,20 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-
-// 1. Definisi kontrak tipe data yang ketat
-interface QueueReportItem {
-  id: string;
-  queue_number: string;
-  status: 'waiting' | 'calling' | 'served' | 'skipped';
-  created_at: string;
-  services: {
-    name: string;
-    code: string;
-  } | null;
-}
 
 interface UserSession {
   id: string;
@@ -23,72 +11,14 @@ interface UserSession {
   role: string;
 }
 
-interface StatSummary {
-  total: number;
-  served: number;
-  skipped: number;
-  waiting: number;
-}
-
-interface ServiceBreakdown {
-  name: string;
-  code: string;
-  total: number;
-}
-
 export default function AdminDashboard() {
   const router = useRouter();
   const [admin, setAdmin] = useState<UserSession | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  
-  // States untuk data laporan
-  const [stats, setStats] = useState<StatSummary>({ total: 0, served: 0, skipped: 0, waiting: 0 });
-  const [serviceSummary, setServiceSummary] = useState<ServiceBreakdown[]>([]);
+  const [isResetLoading, setIsResetLoading] = useState<boolean>(false);
+  const [showConfirm, setShowConfirm] = useState<boolean>(false);
+  const [successMessage, setSuccessMessage] = useState<string>('');
 
-  const fetchDailyReport = useCallback(async () => {
-    setLoading(true);
-    const today = new Date().toISOString().split('T')[0];
-
-    // Ambil semua antrian yang dibuat hari ini beserta nama layanannya
-    const { data, error } = await supabase
-      .from('queues')
-      .select('id, queue_number, status, created_at, services(name, code)')
-      .gte('created_at', `${today}T00:00:00.000Z`);
-
-    if (error) {
-      alert('Gagal mengambil data laporan: ' + error.message);
-      setLoading(false);
-      return;
-    }
-
-    const rawQueues = data as unknown as QueueReportItem[];
-
-    // 2. Kalkulasi Metrik Utama
-    const summary: StatSummary = { total: rawQueues.length, served: 0, skipped: 0, waiting: 0 };
-    const serviceMap: Record<string, { name: string; code: string; total: number }> = {};
-
-    rawQueues.forEach((item) => {
-      // Hitung berdasarkan status
-      if (item.status === 'served') summary.served++;
-      else if (item.status === 'skipped') summary.skipped++;
-      else summary.waiting++;
-
-      // Hitung breakdown per Layanan
-      if (item.services) {
-        const sName = item.services.name;
-        if (!serviceMap[sName]) {
-          serviceMap[sName] = { name: sName, code: item.services.code, total: 0 };
-        }
-        serviceMap[sName].total++;
-      }
-    });
-
-    setStats(summary);
-    setServiceSummary(Object.values(serviceMap));
-    setLoading(false);
-  }, []);
-
-  // Proteksi Route Halaman Admin
+  // 1. Proteksi Halaman: Hanya ijinkan role 'admin'
   useEffect(() => {
     const sessionStr = localStorage.getItem('user_session');
     if (!sessionStr) {
@@ -98,103 +28,126 @@ export default function AdminDashboard() {
 
     const session = JSON.parse(sessionStr) as UserSession;
     if (session.role !== 'admin') {
-      alert('Akses ditolak! Halaman ini hanya untuk Administrator.');
+      alert('Akses ditolak! Halaman ini hanya untuk Administrator Utama.');
       router.push('/login');
       return;
     }
 
     setAdmin(session);
-    fetchDailyReport();
-  }, [router, fetchDailyReport]);
+  }, [router]);
+
+  // 2. Fungsi Eksekusi Reset Manual Seluruh Antrian
+  async function handleManualReset() {
+    setIsResetLoading(true);
+    setSuccessMessage('');
+    
+    try {
+      // Menghapus data antrian hari ini dari tabel queues.
+      // Karena tabel 'queue_calls' dan 'audio_queue' menggunakan ON DELETE CASCADE,
+      // menghapus data di 'queues' otomatis akan membersihkan tabel relasinya seketika.
+      const { error } = await supabase
+        .from('queues')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Trik hapus seluruh baris di Supabase client
+
+      if (error) throw error;
+
+      setSuccessMessage('Sistem Berhasil Direset! Semua antrian kembali ke angka 0.');
+      setShowConfirm(false);
+    } catch (err: unknown) {
+      console.error(err);
+      alert('Gagal melakukan reset database. Periksa hak akses RLS Supabase Anda.');
+    } finally {
+      setIsResetLoading(false);
+    }
+  }
 
   function handleLogout() {
     localStorage.removeItem('user_session');
     router.push('/login');
   }
 
-  if (!admin || loading) {
-    return <div className="p-8 text-center text-slate-500 font-medium">Memuat laporan harian...</div>;
-  }
+  if (!admin) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">Memeriksa Hak Akses Admin...</div>;
 
   return (
-    <div className="p-8 max-w-6xl mx-auto bg-slate-50 min-h-screen">
-      {/* Header */}
-      <header className="mb-8 border-b pb-4 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-black text-slate-800">Laporan Pelayanan PTSP</h1>
-          <p className="text-sm text-slate-500">Log masuk sebagai: <span className="font-semibold text-slate-700">{admin.name}</span></p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={fetchDailyReport}
-            className="bg-white border border-slate-300 text-slate-700 font-medium px-4 py-2 rounded-lg hover:bg-slate-100 transition text-sm"
-          >
-            Refresh Data
-          </button>
-          <button
+    <div className="min-h-screen bg-slate-900 text-white flex flex-col justify-between p-4 md:p-8 relative select-none">
+      {/* Glow Effect */}
+      <div className="absolute top-0 inset-x-0 h-80 bg-gradient-to-b from-purple-950/20 to-transparent pointer-events-none" />
+
+      <div className="max-w-4xl w-full mx-auto relative z-10 flex-1 flex flex-col justify-center">
+        
+        {/* HEADER PANEL */}
+        <header className="flex justify-between items-center border-b border-slate-800 pb-6 mb-12">
+          <div>
+            <div className="flex items-center gap-2 text-purple-400 font-bold text-xs uppercase tracking-widest bg-purple-950/50 border border-purple-900 px-2.5 py-1 rounded-md w-fit">
+              🛡️ Control Center
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight mt-2">Administrator Panel</h1>
+            <p className="text-slate-400 text-xs md:text-sm">Selamat datang kembali, <span className="text-slate-200 font-semibold">{admin.name}</span></p>
+          </div>
+          <button 
             onClick={handleLogout}
-            className="bg-red-600 text-white font-medium px-4 py-2 rounded-lg hover:bg-red-700 transition text-sm shadow-sm"
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 transition"
           >
-            Keluar
+            Log Out
           </button>
-        </div>
-      </header>
+        </header>
 
-      {/* Grid Ringkasan Utama */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">Total Antrian</div>
-          <div className="text-4xl font-black text-slate-800 mt-2">{stats.total}</div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-green-500">
-          <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">Selesai Dilayani</div>
-          <div className="text-4xl font-black text-green-600 mt-2">{stats.served}</div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-orange-500">
-          <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">Terlewat (Skipped)</div>
-          <div className="text-4xl font-black text-orange-600 mt-2">{stats.skipped}</div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-blue-500">
-          <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">Menunggu/Proses</div>
-          <div className="text-4xl font-black text-blue-600 mt-2">{stats.waiting}</div>
-        </div>
+        {/* MAIN BODY CONTROL */}
+        <main className="bg-slate-800/50 border border-slate-800 p-6 md:p-8 rounded-3xl shadow-xl max-w-2xl w-full mx-auto text-center">
+          <span className="text-4xl">⚙️</span>
+          <h2 className="text-xl font-bold mt-3 text-white">Manajemen Pemeliharaan Sistem</h2>
+          <p className="text-slate-400 text-sm max-w-md mx-auto mt-2 leading-relaxed">
+            Gunakan tombol di bawah jika modul reset otomatis berbasis waktu mengalami kegagalan pergantian hari atau saat masa simulasi pengujian selesai.
+          </p>
+
+          {/* Alert Sukses */}
+          {successMessage && (
+            <div className="my-6 p-4 bg-emerald-950/50 border border-emerald-500/30 text-emerald-400 text-sm font-semibold rounded-xl animate-in fade-in zoom-in-95">
+              🎉 {successMessage}
+            </div>
+          )}
+
+          {/* Trigger Tombol Reset Utama */}
+          {!showConfirm ? (
+            <button
+              onClick={() => { setSuccessMessage(''); setShowConfirm(true); }}
+              className="mt-8 bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-8 rounded-xl shadow-lg shadow-red-900/20 transition active:scale-95 text-sm tracking-wider uppercase"
+            >
+              Reset Semua Antrian Sekarang
+            </button>
+          ) : (
+            /* KONFIRMASI GANDA (SAFETY LOCK) */
+            <div className="mt-8 p-6 bg-red-950/30 border border-red-500/20 rounded-2xl animate-in fade-in slide-in-from-bottom-3 duration-200">
+              <h3 className="text-red-400 font-bold text-base mb-1">⚠️ Apakah Anda Sangat Yakin?</h3>
+              <p className="text-slate-400 text-xs max-w-sm mx-auto mb-5 leading-relaxed">
+                Tindakan ini akan menghapus seluruh nomor antrian aktif hari ini secara permanen. Layar monitor TV display akan langsung kembali kosong.
+              </p>
+              <div className="flex justify-center gap-3">
+                <button
+                  onClick={handleManualReset}
+                  disabled={isResetLoading}
+                  className="bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg shadow disabled:opacity-50"
+                >
+                  {isResetLoading ? 'Mereset Data...' : 'Ya, Bersihkan Sekarang'}
+                </button>
+                <button
+                  onClick={() => setShowConfirm(false)}
+                  disabled={isResetLoading}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg border border-slate-700"
+                >
+                  Batalkan
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
       </div>
 
-      {/* Tabel Breakdown Per Layanan */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-800">Volume Antrian Per Layanan</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Statistik sebaran volume loket berdasarkan jenis perkara</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider border-b border-slate-100">
-                <th className="px-6 py-3">Kode</th>
-                <th className="px-6 py-3">Nama Layanan</th>
-                <th className="px-6 py-3 text-right">Jumlah Antrian Hari Ini</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-              {serviceSummary.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-6 py-10 text-center text-slate-400">
-                    Belum ada data antrian yang masuk hari ini.
-                  </td>
-                </tr>
-              ) : (
-                serviceSummary.map((srv, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/50 transition">
-                    <td className="px-6 py-4 font-mono font-bold text-blue-600">{srv.code}</td>
-                    <td className="px-6 py-4 font-medium text-slate-800">{srv.name}</td>
-                    <td className="px-6 py-4 text-right font-semibold text-slate-900">{srv.total}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* FOOTER */}
+      <footer className="border-t border-slate-800 text-center py-4 text-xs text-slate-600 font-mono mt-12">
+        Sistem Manajemen Antrian PTSP • Mode Pengawasan Root Admin
+      </footer>
     </div>
   );
 }
