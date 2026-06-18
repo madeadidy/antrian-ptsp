@@ -160,29 +160,43 @@ export default function KioskPage() {
 
       {/* ─── TEMPLATE STRUK KERTAS (TERSEMBUNYI, HANYA MUNCUL DI PRINTER) ─── */}
       {receipt && (
-        <div className="hidden print:block print:w-[76mm] text-black font-mono text-xs mx-auto text-center leading-tight">
-          <div className="border-b-2 border-dashed border-black pb-3 mb-3">
+        <div className="hidden print:block print:w-[76mm] print:h-[60mm] print:max-h-[60mm] text-black font-mono text-xs mx-auto text-center leading-tight overflow-hidden">
+          <div className="border-b-2 border-dashed border-black pb-2 mb-2">
             <h4 className="text-sm font-bold tracking-tight">PENGADILAN NEGERI</h4>
             <p className="text-[10px] mt-0.5">Sistem Manajemen Antrian PTSP</p>
           </div>
           
           <p className="text-[10px] uppercase font-bold tracking-wide text-slate-600">Nomor Antrian Anda</p>
-          <div className="text-5xl font-black my-4 tracking-tight">
+          <div className="text-4xl font-black my-2 tracking-tight">
             {receipt.queueNumber}
           </div>
           
-          <div className="border-t border-b border-black py-1.5 my-2 font-bold uppercase text-[11px]">
+          <div className="border-t border-b border-black py-1 my-1 font-bold uppercase text-[10px]">
             {receipt.serviceName}
           </div>
           
-          <p className="text-[9px] text-slate-500 mt-3">{receipt.dateStr}</p>
+          <p className="text-[9px] text-slate-500 mt-2">{receipt.dateStr}</p>
           
-          <div className="border-t-2 border-dashed border-black pt-3 mt-4 text-[10px]">
+          <div className="border-t-2 border-dashed border-black pt-2 mt-2 text-[9px]">
             <p className="font-bold">Silahkan Tunggu Nomor Anda Dipanggil</p>
-            <p className="text-[9px] mt-1">Terima Kasih Atas Kunjungan Anda</p>
+            <p className="text-[8px] mt-0.5">Terima Kasih Atas Kunjungan Anda</p>
           </div>
         </div>
       )}
+
+      {/* ─── INJEKSI CSS UNTUK BATAS KERTAS 6CM (FIX UTAMA) ─── */}
+      <style>{`
+        @media print {
+          @page {
+            size: 76mm 60mm; /* Lebar struk 76mm, Tinggi kertas dikunci 60mm (6cm) */
+            margin: 0;       /* Menghilangkan margin bawaan browser (header/footer tanggal chrome) */
+          }
+          body {
+            margin: 0;
+            padding: 0;
+          }
+        }
+      `}</style>
 
     </div>
   );
