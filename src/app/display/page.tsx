@@ -36,7 +36,7 @@ export default function DisplayPage() {
   
   const isSpeakingRef = useRef<boolean>(false);
 
-  // Sinkronisasi data antrian dari database
+  // Tarik status antrian terintegrasi harian
   const fetchAllCountersStatus = useCallback(async () => {
     try {
       const { data: countersData } = await supabase
@@ -73,7 +73,7 @@ export default function DisplayPage() {
     }
   }, []);
 
-  // Eksekusi pengolah suara
+  // Manajemen Audio Player
   const handleIncomingAudio = useCallback(async (audioRow: AudioQueueRow) => {
     if (isSpeakingRef.current) {
       setTimeout(() => handleIncomingAudio(audioRow), 1000);
@@ -132,6 +132,7 @@ export default function DisplayPage() {
     }
   }, [fetchAllCountersStatus]);
 
+  // ─── UTILITY TUNING REALTIME LISTENER (FIX LINTER EXPLICIT ANY) ───
   useEffect(() => {
     const channel = supabase
       .channel('realtime_grid_display')
@@ -141,7 +142,14 @@ export default function DisplayPage() {
           handleIncomingAudio(newRow);
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'queues' }, () => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'queues' }, (payload) => {
+        // FIX: Linter aman! payload dibiarkan inferensi otomatis, lalu di-cast menggunakan objek inline type
+        const newRecord = payload.new as { status: string } | null;
+        
+        // Cek defensif jika data valid dan statusnya 'calling'
+        if (newRecord && newRecord.status === 'calling') return;
+
+        // Jalankan fetch harian HANYA jika status berupa 'served' atau 'skipped'
         fetchAllCountersStatus();
       })
       .subscribe();
@@ -154,7 +162,6 @@ export default function DisplayPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 md:p-6 relative overflow-x-hidden select-none">
       
-      {/* OVERLAY SPEAKER */}
       {!isAudioActivated && (
         <div className="absolute inset-0 bg-slate-950/98 z-50 flex items-center justify-center p-4 text-center backdrop-blur-md">
           <div className="max-w-md bg-slate-900 p-8 rounded-2xl border border-slate-800 shadow-2xl">
@@ -172,7 +179,6 @@ export default function DisplayPage() {
         </div>
       )}
 
-      {/* HEADER */}
       <header className="flex flex-col sm:flex-row justify-between items-center gap-3 border-b border-slate-800 pb-4 text-center sm:text-left">
         <div>
           <h1 className="text-xl md:text-2xl font-black tracking-widest text-white">PELAYANAN TERPADU SATU PINTU (PTSP)</h1>
@@ -183,7 +189,6 @@ export default function DisplayPage() {
         </div>
       </header>
 
-      {/* BANNER NOTIFIKASI PANGGILAN TERAKHIR */}
       {lastCalledInfo && (
         <div className="my-4 bg-blue-950/40 border border-blue-500/30 rounded-2xl p-4 flex items-center justify-center gap-6">
           <span className="text-blue-400 text-sm font-bold uppercase tracking-widest">Panggilan Terakhir:</span>
@@ -192,7 +197,6 @@ export default function DisplayPage() {
         </div>
       )}
 
-      {/* MONITOR GRID LOKET */}
       <main className="flex-1 my-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 items-center justify-center max-w-7xl w-full mx-auto">
         {countersStatus.map((counter) => {
           const isCalling = lastCalledInfo && counter.currentNumber === lastCalledInfo.number && counter.status === 'calling';
@@ -215,7 +219,6 @@ export default function DisplayPage() {
                 </span>
               </div>
 
-              {/* MODIFIKASI UTAMA: Kelas 'animate-bounce' telah dihapus agar posisi nomor tetap tenang/diam */}
               <div className={`text-6xl sm:text-7xl md:text-8xl font-black tracking-tight leading-none my-4 transition-colors ${
                 counter.currentNumber === '—' 
                   ? 'text-slate-700' 
@@ -247,7 +250,6 @@ export default function DisplayPage() {
         })}
       </main>
 
-      {/* TEKS BERJALAN */}
       <footer className="bg-slate-900 border border-slate-800 p-3 md:p-4 rounded-2xl overflow-hidden whitespace-nowrap shadow-inner mt-2">
         <div className="inline-block animate-[marquee_30s_linear_infinite] font-medium text-xs md:text-sm text-slate-400 tracking-wide">
           Menerapkan Zona Integritas Wilayah Bebas Korupsi (WBK) • Utamakan budaya antri yang tertib • Laporkan tindakan pungutan liar melalui kanal pengaduan resmi • Jam pelayanan PTSP Senin - Jumat pukul 08:00 s.d 16:30 WIB.
