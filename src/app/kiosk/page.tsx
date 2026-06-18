@@ -197,7 +197,6 @@ export default function KioskPage() {
           }
         }
       `}</style>
-
     </div>
   );
 }
