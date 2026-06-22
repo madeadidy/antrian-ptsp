@@ -36,7 +36,7 @@ export default function DisplayPage() {
   
   const isSpeakingRef = useRef<boolean>(false);
 
-  // Tarik status antrian terintegrasi harian
+  // Ambil status matriks antrian harian
   const fetchAllCountersStatus = useCallback(async () => {
     try {
       const { data: countersData } = await supabase
@@ -73,49 +73,73 @@ export default function DisplayPage() {
     }
   }, []);
 
-  // Manajemen Audio Player
+  // ─── AMAN GANDA: PENGOLAH AUDIO DENGAN PERISAI TRY-CATCH (ANTI-CRASH) ───
   const handleIncomingAudio = useCallback(async (audioRow: AudioQueueRow) => {
     if (isSpeakingRef.current) {
       setTimeout(() => handleIncomingAudio(audioRow), 1000);
       return;
     }
 
-    isSpeakingRef.current = true;
+    // Amankan antarmuka React menggunakan blok Try-Catch agar jika terjadi kegagalan perebutan data di database,
+    // aplikasi tidak akan pernah melempar unhandled client-side exception yang merusak layar web.
+    try {
+      isSpeakingRef.current = true;
 
-    await supabase.from('audio_queue').update({ status: 'playing' }).eq('id', audioRow.id);
+      // Coba perbarui status audio di database
+      const { error: updateError } = await supabase
+        .from('audio_queue')
+        .update({ status: 'playing' })
+        .eq('id', audioRow.id);
 
-    const { data: queueData } = await supabase.from('queues').select('queue_number').eq('id', audioRow.queue_id).maybeSingle();
-    const { data: counterData } = await supabase.from('counters').select('name').eq('id', audioRow.counter_id).maybeSingle();
+      // Jika komputer ini kalah balapan dengan komputer display lain, hentikan proses tanpa crash
+      if (updateError) {
+        isSpeakingRef.current = false;
+        return;
+      }
 
-    if (queueData && counterData) {
-      setLastCalledInfo({
-        number: queueData.queue_number,
-        counter: counterData.name.toUpperCase(),
-      });
+      const { data: queueData } = await supabase.from('queues').select('queue_number').eq('id', audioRow.queue_id).maybeSingle();
+      const { data: counterData } = await supabase.from('counters').select('name').eq('id', audioRow.counter_id).maybeSingle();
+
+      if (queueData && counterData) {
+        setLastCalledInfo({
+          number: queueData.queue_number,
+          counter: counterData.name.toUpperCase(),
+        });
+      }
+
+      await fetchAllCountersStatus();
+
+      const utterance = new SpeechSynthesisUtterance(audioRow.text_to_speak);
+      const availableVoices = window.speechSynthesis.getVoices();
+      const indonesianVoice = availableVoices.find(voice => 
+        voice.lang.includes('id-ID') || voice.lang.includes('id_ID') || voice.lang.includes('id')
+      );
+      
+      if (indonesianVoice) utterance.voice = indonesianVoice;
+      utterance.lang = 'id-ID';
+      utterance.rate = 0.85;
+
+      utterance.onend = async () => {
+        try {
+          await supabase.from('audio_queue').update({ status: 'played', played_at: new Date().toISOString() }).eq('id', audioRow.id);
+        } catch (e) {
+          console.error('Gagal update status played:', e);
+        } finally {
+          isSpeakingRef.current = false;
+        }
+      };
+
+      utterance.onerror = () => {
+        isSpeakingRef.current = false;
+      };
+
+      window.speechSynthesis.speak(utterance);
+
+    } catch (criticalError) {
+      // Menangkap semua kesalahan runtime di sisi klien secara sunyi (Silent Catch)
+      console.error('Sistem mendeteksi tabrakan multi-display teredam:', criticalError);
+      isSpeakingRef.current = false;
     }
-
-    await fetchAllCountersStatus();
-
-    const utterance = new SpeechSynthesisUtterance(audioRow.text_to_speak);
-    const availableVoices = window.speechSynthesis.getVoices();
-    const indonesianVoice = availableVoices.find(voice => 
-      voice.lang.includes('id-ID') || voice.lang.includes('id_ID') || voice.lang.includes('id')
-    );
-    
-    if (indonesianVoice) utterance.voice = indonesianVoice;
-    utterance.lang = 'id-ID';
-    utterance.rate = 0.85;
-
-    utterance.onend = async () => {
-      await supabase.from('audio_queue').update({ status: 'played', played_at: new Date().toISOString() }).eq('id', audioRow.id);
-      isSpeakingRef.current = false;
-    };
-
-    utterance.onerror = () => {
-      isSpeakingRef.current = false;
-    };
-
-    window.speechSynthesis.speak(utterance);
   }, [fetchAllCountersStatus]);
 
   const activateAudioEngine = () => {
@@ -132,7 +156,6 @@ export default function DisplayPage() {
     }
   }, [fetchAllCountersStatus]);
 
-  // ─── UTILITY TUNING REALTIME LISTENER (FIX LINTER EXPLICIT ANY) ───
   useEffect(() => {
     const channel = supabase
       .channel('realtime_grid_display')
@@ -143,13 +166,8 @@ export default function DisplayPage() {
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'queues' }, (payload) => {
-        // FIX: Linter aman! payload dibiarkan inferensi otomatis, lalu di-cast menggunakan objek inline type
         const newRecord = payload.new as { status: string } | null;
-        
-        // Cek defensif jika data valid dan statusnya 'calling'
         if (newRecord && newRecord.status === 'calling') return;
-
-        // Jalankan fetch harian HANYA jika status berupa 'served' atau 'skipped'
         fetchAllCountersStatus();
       })
       .subscribe();
